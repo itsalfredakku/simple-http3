@@ -1,4 +1,4 @@
-# simple-http3
+# Simple HTTP/3
 
 A minimal, extensible HTTP/3 server and client implementation in Rust — perfect as a boilerplate for experimentation or learning.
 

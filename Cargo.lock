@@ -90,6 +90,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "common",
  "futures",
  "h3",
  "h3-quinn",
@@ -118,6 +119,16 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "rcgen",
+ "rustls",
+ "tracing",
 ]
 
 [[package]]
@@ -844,11 +855,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
+ "common",
  "h3",
  "h3-quinn",
  "http",
  "quinn",
- "rcgen",
  "rustls",
  "tokio",
  "tracing",

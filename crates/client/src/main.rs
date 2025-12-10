@@ -1,7 +1,14 @@
+//! HTTP/3 Client
+//!
+//! A simple HTTP/3 client demonstrating:
+//! - QUIC transport with Quinn
+//! - HTTP/3 protocol handling with h3
+//! - Self-signed certificate handling
+
 use bytes::Buf;
+use common::{tls::insecure_verifier, ClientConfig};
 use http::{Request, Uri};
 use quinn::Endpoint;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::ClientConfig as TlsClientConfig;
 use std::sync::Arc;
 use tracing::info;
@@ -15,11 +22,21 @@ async fn main() -> anyhow::Result<()> {
         .install_default()
         .unwrap();
 
-    // Create client TLS config that accepts any certificate (for self-signed certs)
+    // Configure the client
+    let config = ClientConfig::default();
+
+    // Create client TLS config
     let mut tls_config = TlsClientConfig::builder()
         .dangerous()
-        .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
+        .with_custom_certificate_verifier(insecure_verifier())
         .with_no_client_auth();
+    
+    if !config.insecure {
+        // Note: For production with real certificates, you'd need to configure
+        // proper certificate verification. This example uses insecure mode.
+        tracing::warn!("Secure mode requested but using insecure verifier for demo");
+    }
+    
     tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
     let client_config = quinn::ClientConfig::new(Arc::new(
@@ -29,10 +46,11 @@ async fn main() -> anyhow::Result<()> {
     let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
     endpoint.set_default_client_config(client_config);
 
-    let server_addr = "127.0.0.1:4433".parse()?;
-    let conn = endpoint.connect(server_addr, "localhost")?.await?;
+    let conn = endpoint
+        .connect(config.server_addr, &config.server_name)?
+        .await?;
 
-    info!("Connected to server");
+    info!("Connected to server at {}", config.server_addr);
 
     let quinn_conn = h3_quinn::Connection::new(conn);
     let (mut driver, mut send_request) = h3::client::new(quinn_conn).await?;
@@ -43,21 +61,21 @@ async fn main() -> anyhow::Result<()> {
     });
 
     // Make requests to different endpoints
-    let paths = vec!["/", "/test", "/health", "/unknown"];
+    let paths = vec!["/", "/test", "/health", "/json", "/unknown"];
 
     for path in paths {
-        let uri: Uri = format!("https://localhost:4433{}", path).parse()?;
+        let uri: Uri = format!("https://{}:{}{}", config.server_name, config.server_addr.port(), path).parse()?;
         let req = Request::builder()
             .method("GET")
             .uri(uri)
             .body(())?;
 
-        info!("Sending request to {}", path);
+        info!("GET {}", path);
         let mut stream = send_request.send_request(req).await?;
         stream.finish().await?;
 
         let response = stream.recv_response().await?;
-        info!("Response status: {}", response.status());
+        info!("  Status: {}", response.status());
 
         // Read response body
         let mut body = Vec::new();
@@ -69,59 +87,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         let body_str = String::from_utf8_lossy(&body);
-        info!("Response body: {}", body_str);
-        println!("---");
+        info!("  Body: {}", body_str);
+        println!();
     }
 
     Ok(())
-}
-
-/// Custom certificate verifier that skips verification (for self-signed certs)
-#[derive(Debug)]
-struct SkipServerVerification;
-
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &CertificateDer<'_>,
-        _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA384,
-            rustls::SignatureScheme::RSA_PKCS1_SHA512,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
-            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
-            rustls::SignatureScheme::RSA_PSS_SHA256,
-            rustls::SignatureScheme::RSA_PSS_SHA384,
-            rustls::SignatureScheme::RSA_PSS_SHA512,
-            rustls::SignatureScheme::ED25519,
-        ]
-    }
 }

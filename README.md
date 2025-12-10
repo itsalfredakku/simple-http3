@@ -28,35 +28,11 @@ HTTP/3 is the latest version of the HTTP protocol, built on top of **QUIC** inst
 ## Features
 
 - ✅ HTTP/3 over QUIC (using Quinn + h3)
+- ✅ REST-style request/response handlers
+- ✅ Server-Sent Events (SSE) streaming
 - ✅ Self-signed TLS certificates (auto-generated)
-- ✅ Extensible routing system
+- ✅ Graceful connection handling
 - ✅ Modular architecture for easy customization
-- ✅ Shared `common` crate for reusable code
-
-## Project Structure
-
-```
-simple-http3/
-├── Cargo.toml                 # Workspace configuration
-├── crates/
-│   ├── common/                # Shared utilities
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs         # Re-exports
-│   │       ├── config.rs      # Server/Client configuration
-│   │       └── tls.rs         # TLS utilities & cert generation
-│   ├── server/                # HTTP/3 server
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── main.rs        # Entry point & route definitions
-│   │       ├── router.rs      # Simple path-based router
-│   │       └── server.rs      # Server implementation
-│   └── client/                # HTTP/3 client
-│       ├── Cargo.toml
-│       └── src/
-│           └── main.rs        # Client implementation
-└── README.md
-```
 
 ## Quick Start
 
@@ -69,18 +45,7 @@ cargo build --release
 ### Run the Server
 
 ```bash
-cargo run -p server --release
-```
-
-Or:
-```bash
 ./target/release/server
-```
-
-Output:
-```
-INFO  server > HTTP/3 server listening on 127.0.0.1:4433
-INFO  server > Available routes: ["/", "/test", "/health", "/json"]
 ```
 
 ### Run the Client
@@ -88,27 +53,134 @@ INFO  server > Available routes: ["/", "/test", "/health", "/json"]
 In another terminal:
 
 ```bash
-cargo run -p client --release
-```
-
-Or:
-```bash
 ./target/release/client
 ```
 
+## Sample Output
+
+### Server
+
+```
+$ ./target/release/server
+INFO Starting HTTP/3 server
+INFO HTTP/3 server listening on 127.0.0.1:4433
+INFO Routes: ["/api/info", "/health", "/stream/counter", "/", "/stream/time"]
+INFO GET /
+INFO GET /health
+INFO GET /api/info
+INFO GET /not-found
+INFO GET /stream/time
+INFO   Streaming chunk 1/5
+INFO   Streaming chunk 2/5
+INFO   Streaming chunk 3/5
+INFO   Streaming chunk 4/5
+INFO   Streaming chunk 5/5
+INFO   Stream completed
+```
+
+### Client
+
+```
+$ ./target/release/client
+INFO Connecting to 127.0.0.1:4433...
+INFO Connected!
+
+INFO === REST Requests ===
+
+INFO GET /
+INFO   Status: 200 OK
+INFO   Body: Hello from HTTP/3!
+
+INFO GET /health
+INFO   Status: 200 OK
+INFO   Body: {"status": "healthy", "protocol": "h3"}
+
+INFO GET /api/info
+INFO   Status: 200 OK
+INFO   Body: {"name": "simple-http3", "version": "0.1.0", "endpoints": [...]}
+
+INFO GET /not-found
+INFO   Status: 404 Not Found
+INFO   Body: {"error": "Not Found"}
+
+INFO === Streaming Request ===
+
+INFO GET /stream/time (SSE stream)
+INFO   Status: 200 OK
+INFO   Content-Type: Some("text/event-stream")
+INFO   Receiving chunks:
+INFO     event: time
+INFO     data: 2025-12-10 14:29:25 UTC
+INFO     id: 1
+INFO     event: time
+INFO     data: 2025-12-10 14:29:26 UTC
+INFO     id: 2
+      ... (1 second intervals)
+INFO     event: done
+INFO     data: stream complete
+
+INFO === Closing Connection ===
+INFO Connection closed cleanly
+```
+
+## Project Structure
+
+```
+simple-http3/
+├── Cargo.toml                 # Workspace configuration
+├── crates/
+│   ├── common/                # Shared utilities
+│   │   └── src/
+│   │       ├── lib.rs         # Re-exports
+│   │       ├── config.rs      # Server/Client configuration
+│   │       └── tls.rs         # TLS & cert generation
+│   ├── server/                # HTTP/3 server
+│   │   └── src/
+│   │       ├── main.rs        # Entry point & routes
+│   │       ├── handlers.rs    # REST & streaming handlers
+│   │       ├── router.rs      # Path-based router
+│   │       └── server.rs      # Server implementation
+│   └── client/                # HTTP/3 client
+│       └── src/
+│           └── main.rs        # Client implementation
+└── README.md
+```
+
+## API Endpoints
+
+| Endpoint | Type | Description |
+|----------|------|-------------|
+| `GET /` | REST | Hello message |
+| `GET /health` | REST | Health check (JSON) |
+| `GET /api/info` | REST | API information |
+| `GET /stream/time` | SSE | Pushes time every second (5x) |
+| `GET /stream/counter` | Stream | Counter with JSON lines |
+
 ## Extending the Server
 
-### Adding Routes
-
-Edit `crates/server/src/main.rs`:
+### Adding REST Routes
 
 ```rust
-let router = router::Router::new()
-    .route("/", |_req| async { "Hello from HTTP/3!" })
-    .route("/api/users", |_req| async { 
-        r#"[{"id": 1, "name": "Alice"}]"# 
-    })
-    .route("/health", |_req| async { "OK" });
+let router = Router::new()
+    .route("/", handlers::index)
+    .route("/api/users", |_req| async {
+        RestResponse::json(r#"[{"id": 1, "name": "Alice"}]"#)
+    });
+```
+
+### Adding Streaming Routes
+
+```rust
+let router = Router::new()
+    .stream("/stream/events", |_req, mut stream| async move {
+        stream.send_response(response).await?;
+        for i in 1..=10 {
+            stream.send_data(Bytes::from(format!("event {}\n", i))).await?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        stream.finish().await?;
+        Ok(())
+    });
 ```
 
 ### Custom Configuration
@@ -119,18 +191,6 @@ use common::ServerConfig;
 let config = ServerConfig::new("0.0.0.0:443".parse()?)
     .with_hostnames(vec!["example.com".to_string()])
     .with_idle_timeout(60);
-```
-
-### Adding Middleware (Future)
-
-The router can be extended with middleware patterns:
-
-```rust
-// Example pattern for future extension
-router
-    .middleware(logging_middleware)
-    .middleware(auth_middleware)
-    .route("/protected", handler)
 ```
 
 ## Dependencies

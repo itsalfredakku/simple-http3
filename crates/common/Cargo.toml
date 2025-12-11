@@ -8,3 +8,4 @@ rustls = { version = "0.23", features = ["aws_lc_rs"] }
 rcgen = "0.13"
 anyhow = "1.0"
 tracing = "0.1"
+time = "0.3"

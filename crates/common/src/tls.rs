@@ -2,6 +2,7 @@
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// A certificate chain with its private key.
 pub struct CertificateChain {
@@ -21,6 +22,36 @@ pub fn generate_self_signed_cert(hostnames: &[String]) -> anyhow::Result<Certifi
     let cert = rcgen::generate_simple_self_signed(hostnames.to_vec())?;
     let private_key = PrivateKeyDer::Pkcs8(cert.key_pair.serialize_der().into());
     let cert_chain = vec![cert.cert.der().clone()];
+
+    Ok(CertificateChain {
+        cert_chain,
+        private_key,
+    })
+}
+
+/// Generate a WebTransport-compliant self-signed certificate.
+/// 
+/// For serverCertificateHashes to work, the certificate must:
+/// - Use ECDSA with P-256 curve
+/// - Have a validity period of max 14 days
+/// - Have specific extensions
+pub fn generate_webtransport_cert(hostnames: &[String]) -> anyhow::Result<CertificateChain> {
+    use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
+    use time::{OffsetDateTime, Duration as TimeDuration};
+    
+    let mut params = CertificateParams::new(hostnames.to_vec())?;
+    
+    // Use ECDSA P-256 (required for serverCertificateHashes)
+    let key_pair = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256)?;
+    
+    // Set validity to 14 days (maximum allowed for serverCertificateHashes)
+    let now = OffsetDateTime::now_utc();
+    params.not_before = now;
+    params.not_after = now + TimeDuration::days(14);
+    
+    let cert = params.self_signed(&key_pair)?;
+    let private_key = PrivateKeyDer::Pkcs8(key_pair.serialize_der().into());
+    let cert_chain = vec![cert.der().clone()];
 
     Ok(CertificateChain {
         cert_chain,

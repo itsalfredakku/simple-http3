@@ -17,7 +17,7 @@ HTTP/3 is the latest version of the HTTP protocol, built on top of **QUIC** inst
 ┌─────────────────────────────────────────┐
 │              Application                │
 ├─────────────────────────────────────────┤
-│                HTTP/3                   │
+│            HTTP/3 + WebTransport        │
 ├─────────────────────────────────────────┤
 │                 QUIC                    │
 ├─────────────────────────────────────────┤
@@ -28,8 +28,10 @@ HTTP/3 is the latest version of the HTTP protocol, built on top of **QUIC** inst
 ## Features
 
 - ✅ HTTP/3 over QUIC (using Quinn + h3)
+- ✅ **WebTransport** support for browser connectivity
 - ✅ REST-style request/response handlers
 - ✅ Server-Sent Events (SSE) streaming
+- ✅ Bidirectional streams and datagrams
 - ✅ Self-signed TLS certificates (auto-generated)
 - ✅ Graceful connection handling
 - ✅ Modular architecture for easy customization
@@ -55,6 +57,17 @@ In another terminal:
 ```bash
 ./target/release/client
 ```
+
+### WebTransport (Browser)
+
+Build the WASM client using [Trunk](https://trunkrs.dev):
+
+```bash
+cd crates/web
+trunk serve
+```
+
+Then open `http://localhost:8080` in a browser. The web client connects to the server at `https://localhost:4433/webtransport`.
 
 ## Sample Output
 
@@ -139,10 +152,19 @@ simple-http3/
 │   │       ├── main.rs        # Entry point & routes
 │   │       ├── handlers.rs    # REST & streaming handlers
 │   │       ├── router.rs      # Path-based router
-│   │       └── server.rs      # Server implementation
-│   └── client/                # HTTP/3 client
-│       └── src/
-│           └── main.rs        # Client implementation
+│   │       ├── server.rs      # Server implementation
+│   │       └── webtransport.rs # WebTransport session handling
+│   ├── client/                # HTTP/3 client
+│   │   └── src/
+│   │       └── main.rs        # Client implementation
+│   └── web/                   # Browser client (WASM)
+│       ├── src/
+│       │   ├── lib.rs         # Re-exports
+│       │   ├── app.rs         # Leptos UI components
+│       │   └── transport.rs   # WebTransport JS interop
+│       └── public/
+│           ├── index.html     # Entry HTML for Trunk
+│           └── style.css      # Styles
 └── README.md
 ```
 
@@ -155,6 +177,7 @@ simple-http3/
 | `GET /api/info` | REST | API information |
 | `GET /stream/time` | SSE | Pushes time every second (5x) |
 | `GET /stream/counter` | Stream | Counter with JSON lines |
+| `CONNECT /webtransport` | WebTransport | Browser bidirectional streams |
 
 ## Extending the Server
 
@@ -200,8 +223,10 @@ let config = ServerConfig::new("0.0.0.0:443".parse()?)
 | [quinn](https://crates.io/crates/quinn) | 0.11 | QUIC transport |
 | [h3](https://crates.io/crates/h3) | 0.0.8 | HTTP/3 protocol |
 | [h3-quinn](https://crates.io/crates/h3-quinn) | 0.0.10 | h3 + Quinn integration |
+| [h3-webtransport](https://crates.io/crates/h3-webtransport) | 0.1 | WebTransport sessions |
 | [rustls](https://crates.io/crates/rustls) | 0.23 | TLS with AWS LC crypto |
 | [tokio](https://crates.io/crates/tokio) | 1.x | Async runtime |
+| [leptos](https://crates.io/crates/leptos) | 0.7 | WASM web UI framework |
 
 ## Alternative QUIC/HTTP3 Libraries
 

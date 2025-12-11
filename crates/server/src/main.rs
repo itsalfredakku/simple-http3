@@ -3,12 +3,14 @@
 //! A modular HTTP/3 server demonstrating:
 //! - REST-style request/response handlers
 //! - Server-Sent Events (SSE) streaming
+//! - WebTransport bidirectional streams and datagrams
 //! - QUIC transport with Quinn
 //! - Self-signed TLS certificates
 
 mod handlers;
 mod router;
 mod server;
+mod webtransport;
 
 use common::ServerConfig;
 use router::Router;
@@ -29,7 +31,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure the server
     let config = ServerConfig::default()
-        .with_hostnames(vec!["localhost".to_string()])
+        .with_hostnames(vec![
+            "localhost".to_string(),
+            "127.0.0.1".to_string(),
+        ])
         .with_idle_timeout(10); // 10 seconds for demo
 
     info!("Starting HTTP/3 server");
